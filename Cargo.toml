@@ -7,10 +7,14 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.0.24", features = ["derive"] }
+derive_more = "0.99.17"
 futures = "0.3.25"
+itertools = "0.10.5"
 # Builds librdkafka from sources. 
 # If build fails, see https://github.com/fede1024/rust-rdkafka#installation
 rdkafka = { version = "0.29", features = ["cmake-build"] }
+strum = { version = "0.24.1", features = ["derive"] }
+thiserror = "1.0.37"
 tokio = { version = "1.21.2", features = ["full"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
