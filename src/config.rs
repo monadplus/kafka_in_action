@@ -1,5 +1,5 @@
 use itertools::Itertools;
-use std::str::FromStr;
+use std::{ops::Deref, str::FromStr};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -41,3 +41,11 @@ pub fn brokers_to_str(brokers: impl IntoIterator<Item = Broker>) -> String {
 
 #[derive(Debug, Clone, derive_more::Display, derive_more::FromStr)]
 pub struct TopicName(pub String);
+
+impl Deref for TopicName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.as_ref()
+    }
+}

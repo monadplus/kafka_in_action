@@ -15,7 +15,7 @@ pub fn create_admin(brokers: Vec<Broker>) -> AdminClient<rdkafka::client::Defaul
 }
 
 #[tracing::instrument(skip_all)]
-async fn describe_topic(brokers: Vec<Broker>, topic: TopicName) {
+pub async fn describe_topic(brokers: Vec<Broker>, topic: TopicName) {
     let admin = create_admin(brokers);
     let opts = AdminOptions::new();
     let resources = [&ResourceSpecifier::Topic(&topic.0)];
@@ -29,9 +29,9 @@ async fn describe_topic(brokers: Vec<Broker>, topic: TopicName) {
 }
 
 #[tracing::instrument(skip_all)]
-async fn create_topic(brokers: Vec<Broker>, topic: TopicName) {
+pub async fn create_topic(brokers: Vec<Broker>, topic: TopicName, partitions: i32) {
     let admin = create_admin(brokers);
-    let new_topic = NewTopic::new(topic.0.as_ref(), 5, TopicReplication::Fixed(1));
+    let new_topic = NewTopic::new(topic.0.as_ref(), partitions, TopicReplication::Fixed(1));
     let opts = AdminOptions::new();
     for result in admin.create_topics([&new_topic], &opts).await.unwrap() {
         match result {
@@ -41,14 +41,14 @@ async fn create_topic(brokers: Vec<Broker>, topic: TopicName) {
     }
 }
 
-pub fn log_metadata(brokers: &str, topic: Option<&str>, timeout: Duration, fetch_offsets: bool) {
+pub fn get_metadata(brokers: Vec<Broker>, topic: Option<TopicName>, fetch_offsets: bool) {
     let consumer: BaseConsumer = ClientConfig::new()
-        .set("bootstrap.servers", brokers)
+        .set("bootstrap.servers", brokers_to_str(brokers))
         .create()
         .expect("Consumer creation failed");
 
     let metadata = consumer
-        .fetch_metadata(topic, timeout)
+        .fetch_metadata(topic.as_deref(), Duration::from_secs(1))
         .expect("Failed to fetch metadata");
 
     let mut message_count = 0;
@@ -59,7 +59,6 @@ pub fn log_metadata(brokers: &str, topic: Option<&str>, timeout: Duration, fetch
     info!("  Metadata broker name: {}", metadata.orig_broker_name());
     info!("  Metadata broker id: {}\n", metadata.orig_broker_id());
 
-    info!("Brokers:");
     for broker in metadata.brokers() {
         info!(
             "  Id: {}  Host: {}:{}  ",
@@ -69,7 +68,6 @@ pub fn log_metadata(brokers: &str, topic: Option<&str>, timeout: Duration, fetch
         );
     }
 
-    info!("\nTopics:");
     for topic in metadata.topics() {
         info!("  Topic: {}  Err: {:?}", topic.name(), topic.error());
         for partition in topic.partitions() {
@@ -95,7 +93,7 @@ pub fn log_metadata(brokers: &str, topic: Option<&str>, timeout: Duration, fetch
             }
         }
         if fetch_offsets {
-            info!("     Total message count: {}", message_count);
+            info!("     Total message count: {}\n", message_count);
         }
     }
 }
