@@ -7,11 +7,13 @@
 use clap::Parser;
 use futures::future::join_all;
 use futures::future::try_join_all;
+use futures::StreamExt;
 use kafka_in_action::config::*;
 use kafka_in_action::consumer::*;
 use kafka_in_action::metadata::*;
 use kafka_in_action::producer::*;
 use rdkafka::consumer::CommitMode;
+use rdkafka::consumer::StreamConsumer;
 use rdkafka::consumer::{BaseConsumer, Consumer};
 use rdkafka::producer::future_producer::OwnedDeliveryResult;
 use rdkafka::util::Timeout;
@@ -24,6 +26,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
 use tokio::task::yield_now;
+use tokio::time::timeout;
 use tracing::warn;
 use tracing::{info, Level};
 
@@ -127,6 +130,50 @@ async fn run_consumer(i: usize, consumer: BaseConsumer) {
     }
 }
 
+#[tracing::instrument(skip(consumer))]
+async fn run_stream_consumer(i: usize, consumer: StreamConsumer) {
+    let consumer = Arc::new(consumer);
+    let stream = consumer.stream().for_each_concurrent(10, |m| {
+        let consumer = Arc::clone(&consumer);
+        async move {
+            match m {
+                Err(e) => {
+                    warn!("poll error: {}", e);
+                }
+                Ok(m) => {
+                    match m.payload_view::<str>() {
+                        Some(Ok(str)) => match serde_json::from_str::<Action>(str) {
+                            Ok(payload) => {
+                                info!(
+                                    key = ?m.key(),
+                                    ?payload,
+                                    topic = %m.topic(),
+                                    partition = %m.partition(),
+                                    offset = %m.offset(),
+                                    timestamp = ?m.timestamp(),
+                                    "Consumer message received",
+                                );
+                            }
+                            Err(e) => {
+                                warn!("Error while deserializing json payload: {:?}", e);
+                            }
+                        },
+                        None => {}
+                        Some(Err(e)) => {
+                            warn!("Error while deserializing message payload: {:?}", e);
+                        }
+                    };
+                    consumer.commit_message(&m, CommitMode::Async).unwrap();
+                }
+            };
+        }
+    });
+
+    if let Err(_) = timeout(Duration::from_secs(5), stream).await {
+        info!("Stream {} timed out (as expected)", i);
+    }
+}
+
 #[tracing::instrument]
 async fn run(brokers: Vec<Broker>, topic: TopicName) {
     let producer: Arc<FutureProducer> = Arc::new(create_producer(brokers.clone()));
@@ -137,10 +184,18 @@ async fn run(brokers: Vec<Broker>, topic: TopicName) {
         })
         .collect::<Vec<_>>();
 
+    // let consumer_handlers = (0..3)
+    //     .map(|i| {
+    //         let consumer: BaseConsumer = create_base_consumer(brokers.clone(), &[&topic], "group1");
+    //         tokio::spawn(run_consumer(i, consumer))
+    //     })
+    //     .collect::<Vec<_>>();
+
     let consumer_handlers = (0..3)
         .map(|i| {
-            let consumer: BaseConsumer = create_base_consumer(brokers.clone(), &[&topic], "group1");
-            tokio::spawn(run_consumer(i, consumer))
+            let consumer: StreamConsumer =
+                create_stream_consumer(brokers.clone(), &[&topic], "group1");
+            tokio::spawn(run_stream_consumer(i, consumer))
         })
         .collect::<Vec<_>>();
 
