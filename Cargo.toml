@@ -10,9 +10,12 @@ clap = { version = "4.0.24", features = ["derive"] }
 derive_more = "0.99.17"
 futures = "0.3.25"
 itertools = "0.10.5"
+lazy_static = "1.4.0"
 # Builds librdkafka from sources. 
 # If build fails, see https://github.com/fede1024/rust-rdkafka#installation
 rdkafka = { version = "0.29", features = ["cmake-build"] }
+serde = { version = "1.0.147", features = ["derive"] }
+serde_json = "1.0.88"
 strum = { version = "0.24.1", features = ["derive"] }
 thiserror = "1.0.37"
 tokio = { version = "1.21.2", features = ["full"] }

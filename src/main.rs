@@ -17,10 +17,11 @@ use rdkafka::producer::future_producer::OwnedDeliveryResult;
 use rdkafka::util::Timeout;
 use rdkafka::Message;
 use rdkafka::{
-    message::{Header, OwnedHeaders},
     producer::{FutureProducer, FutureRecord},
     util::get_rdkafka_version,
 };
+use serde::Deserialize;
+use serde::Serialize;
 use std::{sync::Arc, time::Duration};
 use tokio::task::yield_now;
 use tracing::warn;
@@ -37,21 +38,48 @@ struct Args {
     topic: TopicName,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "type")]
+enum Action {
+    Deposit {
+        from: String,
+        to: String,
+        amount: u64,
+    },
+    Withdraw {
+        from: String,
+        to: String,
+        amount: u64,
+    },
+}
+
+lazy_static::lazy_static! {
+    static ref ACTIONS: [Action; 2] = [
+        Action::Deposit {
+            from: "A".to_string(),
+            to: "B".to_string(),
+            amount: 15 as u64,
+        },
+        Action::Withdraw {
+            from: "A".to_string(),
+            to: "C".to_string(),
+            amount: 10 as u64,
+        },
+    ];
+}
+
 #[tracing::instrument(skip_all)]
 async fn run_producer(
     i: i32,
     topic: TopicName,
     producer: Arc<FutureProducer>,
 ) -> OwnedDeliveryResult {
+    let payload: String = serde_json::to_string(&ACTIONS[i as usize % 2]).unwrap();
     let delivery_status = producer
         .send(
             FutureRecord::to(&topic.to_string())
-                .payload(&format!("Message {}", i))
-                .key(&format!("Key {}", i))
-                .headers(OwnedHeaders::new().insert(Header {
-                    key: "header_key",
-                    value: Some("header_value"),
-                })),
+                .payload(&payload)
+                .key(&format!("Key {}", i)),
             Duration::from_secs(0),
         )
         .await;
@@ -69,17 +97,23 @@ async fn run_consumer(i: usize, consumer: BaseConsumer) {
                 warn!("poll error: {}", e);
             }
             Some(Ok(m)) => {
-                let payload = match m.payload_view::<str>() {
-                    None => "",
-                    Some(Ok(s)) => s,
+                let payload: Action = match m.payload_view::<str>() {
+                    Some(Ok(str)) => match serde_json::from_str::<Action>(str) {
+                        Ok(payload) => payload,
+                        Err(e) => {
+                            warn!("Error while deserializing json payload: {:?}", e);
+                            continue;
+                        }
+                    },
+                    None => continue,
                     Some(Err(e)) => {
                         warn!("Error while deserializing message payload: {:?}", e);
-                        ""
+                        continue;
                     }
                 };
                 info!(
                     key = ?m.key(),
-                    %payload,
+                    ?payload,
                     topic = %m.topic(),
                     partition = %m.partition(),
                     offset = %m.offset(),
@@ -137,7 +171,7 @@ async fn main() {
 
     // create_topic(args.brokers, args.topic, 10).await;
     // describe_topic(args.brokers, args.topic).await;
-    // get_metadata(args.brokers.clone(), Some(args.topic.clone()), true);
+    get_metadata(args.brokers.clone(), Some(args.topic.clone()), true);
 
     run(args.brokers, args.topic).await;
 }
