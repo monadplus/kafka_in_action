@@ -35,6 +35,10 @@ Describe a topic:
 docker exec -it kafka1 kafka-topics --bootstrap-server localhost:9092 --topic topic1 --create --replication-factor 1 --partitions 3
 ```
 
+## TODO
+
+- [ ] Serialize and deserialize from Confluence Schema Registry using [schema_registry_converter](https://github.com/gklijs/schema_registry_converter)
+
 ## Credit
 
 - docker-compose: https://github.com/conduktor/kafka-stack-docker-compose
